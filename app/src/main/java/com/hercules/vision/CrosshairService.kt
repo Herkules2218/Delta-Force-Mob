@@ -143,7 +143,7 @@ class CrosshairService : Service() {
         val cy = height / 2f
         val fov = prefs.getInt("fov", 85).coerceIn(0, 100)
         val radius = min(width, height) * (0.18f + fov / 100f * 0.65f)
-        val available = markers.filter { hypot(it.x - cx, it.y - cy) <= radius }
+        val available = markers.filter { val d = hypot(it.x - cx, it.y - cy); d <= radius && d >= min(width, height) * 0.08f }
         if (available.isEmpty()) return null
         val preferredX = if (trackedX.isNaN()) cx else trackedX
         val preferredY = if (trackedY.isNaN()) cy else trackedY
