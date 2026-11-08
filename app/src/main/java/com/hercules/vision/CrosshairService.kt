@@ -143,7 +143,7 @@ class CrosshairService : Service() {
     private fun resizeCapture(width: Int, height: Int, handler: Handler) {
         if (width < 100 || height < 100 || projection == null) return
         val old = imageReader
-        if (old?.width == width && old.height == height) return
+        if (old != null && old.width == width && old.height == height) return
         try {
             val replacement = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
             attachListener(replacement, handler)
