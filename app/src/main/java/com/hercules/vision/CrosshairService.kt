@@ -93,6 +93,11 @@ class CrosshairService : Service() {
             projection = p
             p.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() { stopSelf() }
+                override fun onCapturedContentResize(width: Int, height: Int) {
+                    Handler(Looper.getMainLooper()).post {
+                        if (projection != null) resizeCapture(width, height, frameHandler)
+                    }
+                }
             }, Handler(Looper.getMainLooper()))
 
             val point = Point()
@@ -103,23 +108,7 @@ class CrosshairService : Service() {
             val density = resources.displayMetrics.densityDpi
             val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
             imageReader = reader
-            reader.setOnImageAvailableListener({ source ->
-                val frame = try { source.acquireLatestImage() } catch (_: Exception) { null }
-                    ?: return@setOnImageAvailableListener
-                try {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastAnalyzed >= 115L) {
-                        lastAnalyzed = now
-                        val matches = VisionProcessor.findRedMarkers(frame, prefs.getInt("sensitivity", 60))
-                        val selected = chooseTarget(matches, frame.width, frame.height)
-                        overlay?.post { overlay?.updateMarker(selected, frame.width, frame.height) }
-                    }
-                } catch (_: Exception) {
-                    overlay?.post { overlay?.updateMarker(null, frame.width, frame.height) }
-                } finally {
-                    frame.close()
-                }
-            }, frameHandler)
+            attachListener(reader, frameHandler)
             display = p.createVirtualDisplay(
                 "HerculesVisionCapture", width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
@@ -129,6 +118,43 @@ class CrosshairService : Service() {
             stopSelf()
         }
         return START_NOT_STICKY
+    }
+
+    private fun attachListener(reader: ImageReader, frameHandler: Handler) {
+        reader.setOnImageAvailableListener({ source ->
+            val frame = try { source.acquireLatestImage() } catch (_: Exception) { null }
+                ?: return@setOnImageAvailableListener
+            try {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastAnalyzed >= 115L) {
+                    lastAnalyzed = now
+                    val matches = VisionProcessor.findRedMarkers(frame, prefs.getInt("sensitivity", 60))
+                    val selected = chooseTarget(matches, frame.width, frame.height)
+                    overlay?.post { overlay?.updateMarker(selected, frame.width, frame.height) }
+                }
+            } catch (_: Exception) {
+                overlay?.post { overlay?.updateMarker(null, frame.width, frame.height) }
+            } finally {
+                frame.close()
+            }
+        }, frameHandler)
+    }
+
+    private fun resizeCapture(width: Int, height: Int, handler: Handler) {
+        if (width < 100 || height < 100 || projection == null) return
+        val old = imageReader
+        if (old?.width == width && old.height == height) return
+        try {
+            val replacement = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
+            attachListener(replacement, handler)
+            display?.resize(width, height, resources.displayMetrics.densityDpi)
+            display?.surface = replacement.surface
+            imageReader = replacement
+            old?.setOnImageAvailableListener(null, null)
+            old?.close()
+            trackedX = Float.NaN
+            trackedY = Float.NaN
+        } catch (_: Exception) { }
     }
 
     private fun chooseTarget(
